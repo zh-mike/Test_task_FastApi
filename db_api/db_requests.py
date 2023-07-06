@@ -6,7 +6,7 @@ class Database:
         self.db_path = db_path
 
     def execute(self, sql: str, parameters: tuple = tuple(),
-                fetchone=False, fetchall=False, commit=False):
+                fetchone=False, fetchall=False, commit=False, lastrowid=False):
         with sqlite3.connect(self.db_path) as con:
             cursor = con.cursor()
             data = None
@@ -17,28 +17,20 @@ class Database:
                 data = cursor.fetchone()
             if fetchall == True:
                 data = cursor.fetchall()
+            if lastrowid == True:
+                data = cursor.lastrowid
             return data
 
     def create_users_table(self):
         sql = """
         CREATE TABLE IF NOT EXISTS Users(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
         login TEXT UNIQUE,
         password TEXT
         );
         """
         self.execute(sql, commit=True)
 
-    def create_posts_table(self):
-        sql = """
-        CREATE TABLE IF NOT EXISTS Posts(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT,
-        body TEXT,
-        user_id INTAGRE
-        );
-        """
-        self.execute(sql, commit=True)
 
     def add_user(self, user_login, user_password):
         sql = "INSERT INTO Users(login, password) VALUES (?, ?)"
@@ -47,6 +39,60 @@ class Database:
 
     def search_user(self, user_logit, search_to='login'):
         sql = f"SELECT * FROM Users WHERE {search_to}=?"
-        return self.execute(sql, parameters=(user_logit,), fetchone=True)
+        current_user = self.execute(sql, parameters=(user_logit,), fetchone=True)
+        if current_user == None:
+            return None
+        return self.lst_in_dict(current_user, model_user=True)
+
+    def create_posts_table(self):
+        sql = """
+        CREATE TABLE IF NOT EXISTS Posts(
+        post_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        body TEXT,
+        user_id INTEGER,
+        likes TEXT
+        );
+        """
+        self.execute(sql, commit=True)
+
+    def add_post(self, title, body, user_id):
+        sql = "INSERT INTO Posts(title, body, user_id) VALUES (?, ?, ?)"
+        parameters = (title, body, user_id)
+        return self.execute(sql, parameters=parameters, commit=True, lastrowid=True)
+
+    def search_post(self, id, search_to='rowid'):
+        sql = f"SELECT * FROM Posts WHERE {search_to}=?"
+        user_posts = self.execute(sql, parameters=(id,), fetchone=True)
+        if user_posts == None:
+            return None
+        return self.lst_in_dict(user_posts)
+    def search_user_posts(self, user_id):
+        sql = "SELECT * FROM Posts WHERE user_id=?"
+        user_posts = self.execute(sql, parameters=(user_id,), fetchall=True)
+        return self.lst_in_dict(user_posts)
 
 
+    def search_all_posts(self):
+        sql = "SELECT * FROM Posts"
+        all_posts = self.execute(sql, fetchall=True)
+        return self.lst_in_dict(all_posts)
+
+
+
+
+
+
+
+    @staticmethod
+    def lst_in_dict(db_answer, model_user=False):
+        result_lst = []
+        model = ['post_id', 'title', 'body', 'user_id', 'likes']
+        mod_user = ['user_id', 'login', 'password']
+        if isinstance(db_answer, tuple):
+            db_answer = [db_answer]
+        if model_user == True:
+            model = mod_user
+        for el in db_answer:
+            result_lst.append(dict(zip(model, el)))
+        return result_lst

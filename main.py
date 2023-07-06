@@ -6,6 +6,7 @@
 # Как пользователь, я могу лайкать или не лайкать посты других пользователей, но не свои собственные
 # API нуждается в документации по пользовательскому интерфейсу (Swagger/ReDoc)
 
+
 from fastapi import FastAPI, Header, Depends
 from pydantic import BaseModel
 from typing import Dict
@@ -18,12 +19,9 @@ class Users(BaseModel):
     password: str
 
 
-# Класс для удобной работы с ответом от бд
-class Current_user:
-    def __init__(self, id, login, password):
-        self.id = id
-        self.login = login
-        self.password = password
+class Posts(BaseModel):
+    title: str
+    body: str
 
 
 JWT_SECRET = 'nvuesbfiwu;bf34ubfcwkebjro;'
@@ -37,8 +35,8 @@ app = FastAPI(
 async def get_current_user(jwt_token: str = Header()):
     try:
         decoded_jwt = jwt.decode(jwt_token, JWT_SECRET, algorithms=JWT_ALG)
-        curr_user = Current_user(*db.search_user(decoded_jwt['user_id'], search_to='id'))
-        return curr_user
+        current_user = db.search_user(decoded_jwt['user_id'], search_to='user_id')
+        return current_user[0]
     except jwt.exceptions.DecodeError:
         return {'success': False, 'message': 'Invalid x-token'}
 
@@ -49,18 +47,18 @@ def registration(user: Users):
     if db.search_user(user.login) is not None:
         return {'success': False, 'message': "User login is exists", 'user': user.login}
     db.add_user(user.login, user.password)
-    curr_user = Current_user(*db.search_user(user.login))
+    curr_user = db.search_user(user.login)
     return {'success': True, 'message': 'User registered', 'user': curr_user}
 
 
 @app.get('/user')
 def authorization(login: str, password: str):
-    founded_user = db.search_user(login)
+    founded_user = db.search_user(login)[0]
+    print(founded_user)
     if founded_user is None:
         return {'success': False, 'message': "User not found"}
-    current_user = Current_user(*founded_user)  # Привожу данные из бд к классу для удобства
-    if current_user.login == login and current_user.password == password:
-        encoded_jwt = jwt.encode({'user_id': current_user.id}, JWT_SECRET, algorithm=JWT_ALG)
+    if founded_user['login'] == login and founded_user['password'] == password:
+        encoded_jwt = jwt.encode({'user_id': founded_user['user_id']}, JWT_SECRET, algorithm=JWT_ALG)
         return {'success': True, 'jwt-token': encoded_jwt}
     return {'success': False, 'message': "Invalid password"}
 
@@ -68,3 +66,26 @@ def authorization(login: str, password: str):
 @app.get('/test_jwt')
 def back(current_user: Dict = Depends(get_current_user)):
     return current_user
+
+
+@app.post('/user/posts')
+def add_post(post: Posts, current_user: Dict = Depends(get_current_user)):
+    db.create_posts_table()
+    curr_id = db.add_post(post.title, post.body, current_user['user_id'])
+    curr_post = db.search_post(curr_id)
+    return {'success': True, 'message': "Post added", 'post': curr_post}
+
+
+@app.get('/user/posts')
+def get_user_posts(current_user: Dict = Depends(get_current_user)):
+    if 'success' in current_user:
+        return current_user
+    user_posts = db.search_user_posts(current_user['user_id'])
+    return {'success': True, 'message': "All your posts", 'posts': user_posts}
+
+@app.get('/posts')
+def get_all_posts(current_user: Dict = Depends(get_current_user)):
+    if 'success' in current_user:
+        return current_user
+    all_posts = db.search_all_posts()
+    return {'success': True, 'message': "All posts", 'posts': all_posts}
