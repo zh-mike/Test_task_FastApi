@@ -1,2 +1,4 @@
 .idea/
 __pycache__/
+.DS_Store
+db_api/__pycache__/db_requests.cpython-311.pyc

@@ -63,11 +63,6 @@ def authorization(login: str, password: str):
     return {'success': False, 'message': "Invalid password"}
 
 
-@app.get('/test_jwt')
-def back(current_user: Dict = Depends(get_current_user)):
-    return current_user
-
-
 @app.post('/user/posts')
 def add_post(post: Posts, current_user: Dict = Depends(get_current_user)):
     db.create_posts_table()
@@ -81,6 +76,8 @@ def get_user_posts(current_user: Dict = Depends(get_current_user)):
     if 'success' in current_user:
         return current_user
     user_posts = db.search_user_posts(current_user['user_id'])
+    if user_posts == []:
+        return {'success': False, 'message': "You don't have posts"}
     return {'success': True, 'message': "All your posts", 'posts': user_posts}
 
 @app.get('/posts')
@@ -89,3 +86,32 @@ def get_all_posts(current_user: Dict = Depends(get_current_user)):
         return current_user
     all_posts = db.search_all_posts()
     return {'success': True, 'message': "All posts", 'posts': all_posts}
+
+@app.get('/user/post')
+def get_post(post_id, current_user: Dict = Depends(get_current_user)):
+    if 'success' in current_user:
+        return current_user
+    user_post = db.search_post(post_id, search_to='post_id')
+    if user_post == None:
+        return  {'success': False, 'message': "Post not found"}
+    return {'success': True, 'posts': user_post}
+
+@app.delete('/user/post')
+def delete_post(post_id, current_user: Dict = Depends(get_current_user)):
+    if 'success' in current_user:
+        return current_user
+    post = db.search_post(post_id, search_to='post_id')
+    if post == None:
+        return {'success': False, 'message': "Post not found"}
+    db.del_post(post_id, current_user['user_id'])
+    return {'success': True, 'message': "Post deleted"}
+
+@app.put('/user/post')
+def update_post(post: Posts, post_id, current_user: Dict = Depends(get_current_user)):
+    if 'success' in current_user:
+        return current_user
+    founded_post = db.search_post(post_id, search_to='post_id')
+    if founded_post == None:
+        return {'success': False, 'message': "Post not found"}
+    db.update_post(new_post=post, post_id=post_id, user_id=current_user['user_id'])
+    return {'success': True, 'message': "Post update"}
