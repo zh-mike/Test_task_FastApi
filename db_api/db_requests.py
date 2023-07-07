@@ -11,13 +11,13 @@ class Database:
             cursor = con.cursor()
             data = None
             cursor.execute(sql, parameters)
-            if commit == True:
+            if commit:
                 con.commit()
-            if fetchone == True:
+            if fetchone:
                 data = cursor.fetchone()
-            if fetchall == True:
+            if fetchall:
                 data = cursor.fetchall()
-            if lastrowid == True:
+            if lastrowid:
                 data = cursor.lastrowid
             return data
 
@@ -51,7 +51,7 @@ class Database:
         title TEXT,
         body TEXT,
         user_id INTEGER,
-        likes TEXT
+        likes TEXT DEFAULT ' '
         );
         """
         self.execute(sql, commit=True)
@@ -80,19 +80,22 @@ class Database:
         return self.in_dict(all_posts)
 
     def del_post(self, post_id, user_id):
-        sql = f"DELETE FROM Posts WHERE post_id={post_id} AND user_id={user_id}"
+        sql = f"DELETE FROM Posts WHERE post_id = {post_id} AND user_id = {user_id}"
         self.execute(sql, commit=True)
 
 
     def update_post(self, new_post, post_id, user_id):
-
-        sql = f"UPDATE Posts SET title='{new_post.title}', body='{new_post.body}' WHERE post_id={post_id}"
+        sql = f"UPDATE Posts SET title='{new_post.title}', " \
+              f"body='{new_post.body}' WHERE post_id = {post_id} AND user_id = {user_id}"
         self.execute(sql, commit=True)
+    def liked(self, post_id, likes_lst):
+        sql = f"UPDATE Posts SET likes = '{likes_lst}' WHERE post_id = {post_id}"
+        self.execute(sql, commit=True)
+
 
     @staticmethod
     def in_dict(db_answer, model_user=False):
-        """
-        Функция для преобразования полученной от бд информации в dict
+        """Функция для преобразования полученной от бд информации в dict
         для удобства дальнейшей работы.
         """
         result_lst = []
