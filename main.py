@@ -7,19 +7,19 @@
 # API нуждается в документации по пользовательскому интерфейсу (Swagger/ReDoc)
 
 
-from fastapi import FastAPI, Header, Depends
+from fastapi import FastAPI, Header, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Dict
 import jwt
-from loader import db
+from classes import Users, Posts
 
 
-class Users(BaseModel):
+class User(BaseModel):
     login: str
     password: str
 
 
-class Posts(BaseModel):
+class Post(BaseModel):
     title: str
     body: str
 
@@ -32,123 +32,149 @@ app = FastAPI(
 )
 
 
-def check_post(current_user, post_id):
-    if 'success' in current_user:  # Проверяем верный ли jwt
-        return current_user
-    founded_post = db.search_post(post_id, search_to='post_id')
-    if founded_post == None:
-        return {'success': False, 'message': "Post not found"}
-    if founded_post[0]['user_id'] != current_user['user_id']:
-        return {'success': False, 'message': "This is not your post"}
-    return {'success': True}
-
-
 async def get_current_user(jwt_token: str = Header()):
     try:
         decoded_jwt = jwt.decode(jwt_token, JWT_SECRET, algorithms=JWT_ALG)
-        current_user = db.search_user(decoded_jwt['user_id'], search_to='user_id')
-        return current_user[0]
+        current_user = Users.load({'id': decoded_jwt['user_id']})
+
+        if current_user is None:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        return current_user, decoded_jwt['user_id']
+
     except jwt.exceptions.DecodeError:
-        return {'success': False, 'message': 'Invalid jwt-token'}
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 @app.post('/register')
-def registration(user: Users):
-    db.create_users_table()
-    if db.search_user(user.login) is not None:
-        return {'success': False, 'message': "User login is exists", 'user': user.login}
-    db.add_user(user.login, user.password)
-    curr_user = db.search_user(user.login)
-    return {'success': True, 'message': 'User registered', 'user': curr_user}
+def registration(user: User):
+
+    if Users.load({'login': user.login}) is not None:
+
+        raise HTTPException(status_code=403, detail="User login is exists")
+
+    current_user = Users()
+    current_user.login = user.login
+    current_user.password = user.password
+    current_user.save()
+
+    return {'success': True, 'message': 'User registered',
+            'user': Users.load({'login': current_user.login})}
 
 
 @app.get('/user')
 def authorization(login: str, password: str):
-    founded_user = db.search_user(login)[0]
-    print(founded_user)
+    founded_user = Users.load({'login': login})
+
     if founded_user is None:
-        return {'success': False, 'message': "User not found"}
-    if founded_user['login'] == login and founded_user['password'] == password:
-        encoded_jwt = jwt.encode({'user_id': founded_user['user_id']}, JWT_SECRET, algorithm=JWT_ALG)
+
+        raise HTTPException(status_code=404, detail="User not found")
+
+
+    if founded_user.login == login and founded_user.password == password:
+        encoded_jwt = jwt.encode({'user_id': founded_user.id}, JWT_SECRET, algorithm=JWT_ALG)
+
         return {'success': True, 'jwt-token': encoded_jwt}
-    return {'success': False, 'message': "Invalid password"}
+
+    raise HTTPException(status_code=401, detail="Invalid password")
 
 
 @app.post('/user/posts')
-def add_post(post: Posts, current_user: Dict = Depends(get_current_user)):
-    db.create_posts_table()
-    curr_id = db.add_post(post.title, post.body, current_user['user_id'])
-    curr_post = db.search_post(curr_id)
-    return {'success': True, 'message': "Post added", 'post': curr_post}
+def add_post(post: Post, current_user: Dict = Depends(get_current_user)):
+    new_post = Posts()
+    new_post.title = post.title
+    new_post.body = post.body
+    new_post.user_id = current_user[1]
+    new_post.save()
+
+    return {'success': True, 'message': "Post added", 'post': new_post}
 
 
 @app.get('/posts')
 def get_all_posts(current_user: Dict = Depends(get_current_user)):
-    if 'success' in current_user:
-        return current_user
-    all_posts = db.search_all_posts()
-    for el in all_posts:
-        el['likes'] = len(el['likes'].split())
+    all_posts = Posts.load_by()
+
     return {'success': True, 'message': "All posts", 'posts': all_posts}
 
 
 @app.get('/user/posts')
 def get_user_posts(current_user: Dict = Depends(get_current_user)):
-    if 'success' in current_user:
-        return current_user
-    user_posts = db.search_user_posts(current_user['user_id'])
+    user_posts = Posts.load_by({'user_id': current_user[0].user_id})
+
     if user_posts == []:
-        return {'success': False, 'message': "You don't have posts"}
-    for el in user_posts:
-        el['likes'] = len(el['likes'].split())
+
+        raise HTTPException(status_code=404, detail="Post not found")
+
     return {'success': True, 'message': "All your posts", 'posts': user_posts}
 
 
 @app.get('/user/post')
 def get_post(post_id, current_user: Dict = Depends(get_current_user)):
-    if 'success' in current_user:
-        return current_user
-    user_post = db.search_post(post_id, search_to='post_id')
-    if user_post is None:
-        return {'success': False, 'message': "Post not found"}
-    user_post[0]['likes'] = len(user_post[0]['likes'].split())
-    return {'success': True, 'posts': user_post}
+    found_post = Posts.load({'id': post_id})
+
+    if found_post is None:
+
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    found_post.hide_likes()
+
+    return {'success': True, 'posts': found_post}
 
 
 @app.delete('/user/post')
 def delete_post(post_id, current_user: Dict = Depends(get_current_user)):
-    answer = check_post(current_user, post_id)
-    if answer['success'] is True:
-        db.del_post(post_id, current_user['user_id'])
-        return {'success': True, 'message': "Post deleted"}
-    return answer
+    current_post = Posts.load({'id': post_id})
+
+    if current_post.user_id != current_user[1]:
+
+        raise HTTPException(status_code=403, detail="This is not your post")
+
+    Posts.delete(post_id)
+
+    return {'success': True, 'message': "Post deleted"}
 
 
 @app.put('/user/post')
-def update_post(post: Posts, post_id, current_user: Dict = Depends(get_current_user)):
-    answer = check_post(current_user, post_id)
-    if answer['success'] is True:
-        db.update_post(new_post=post, post_id=post_id, user_id=current_user['user_id'])
-        return {'success': True, 'message': "Post update"}
-    return answer
+def update_post(post: Post, post_id, current_user: Dict = Depends(get_current_user)):
+    current_post = Posts.load({'id': post_id})
+
+    if current_post.user_id != current_user[1]:
+
+        raise HTTPException(status_code=403, detail="This is not your post")
+
+    current_post.title = post.title
+    current_post.body = post.body
+    current_post.update()
+
+    return {'success': True, 'message': "Post update"}
+
 
 @app.post('/likes')
 def like_post(post_id, current_user: Dict = Depends(get_current_user)):
-    if 'success' in current_user:
-        return current_user
-    founded_post = db.search_post(post_id, search_to='post_id')
-    if founded_post is None:
-        return {'success': False, 'message': "Post not found"}
-    if founded_post[0]['user_id'] == current_user['user_id']:
-        return {'success': False, 'message': "This is your post"}
+    current_post = Posts.load({'id': post_id})
+
+    if current_post is None:
+
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    if current_post.user_id == current_user[1]:
+
+        raise HTTPException(status_code=403, detail="This is your post")
+
+    print(current_post.likes)
     likes_lst = []
-    if founded_post[0]['likes'] is not None:
-        likes_lst = founded_post[0]['likes'].split()
-        print(likes_lst)
-        if str(current_user['user_id']) in likes_lst:
-            return {'success': False, 'message': "You can liked post only once"}
-    likes_lst.append(str(current_user['user_id']))
+
+    if current_post.likes != ' ':
+        likes_lst = current_post.likes.split()
+
+        if str(current_user[1]) in likes_lst:
+
+            raise HTTPException(status_code=403, detail="You can liked post only once")
+
+    likes_lst.append(str(current_user[1]))
     likes = " ".join(likes_lst)
-    print(likes)
-    db.liked(post_id,  likes)
+    current_post.likes = likes
+    current_post.sum_likes = int(current_post.sum_likes) + 1
+    current_post.update()
+
     return {'success': True, 'message': "You liked this post"}

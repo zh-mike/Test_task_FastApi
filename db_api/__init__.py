@@ -1,1 +1,1 @@
-from .db_requests import Database
+from .provider import *
