@@ -12,38 +12,42 @@ def create_connect(db_path=db_path):
 def execute(sql: str, parameters: tuple = tuple(),
             fetchone=False, fetchall=False, commit=False, lastrowid=False):
 
-    create_connect()
-    cursor = connector.cursor()
-    data = None
-    cursor.execute(sql, parameters)
+    with sqlite3.connect(db_path) as connector:
 
-    if commit:
-        connector.commit()
+        connector.row_factory = sqlite3.Row
 
-    if fetchone:
-        data = cursor.fetchone()
+        create_connect()
+        cursor = connector.cursor()
+        data = None
+        cursor.execute(sql, parameters)
 
-        if data is None:
-            return None
+        if commit:
+            connector.commit()
 
-        data = dict(data)
+        if fetchone:
+            data = cursor.fetchone()
 
-    if fetchall:
-        data = cursor.fetchall()
+            if data is None:
+                return None
 
-        if data is None:
-            return []
+            data = dict(data)
 
-        if type(data) != list:
-            data = [data]
+        if fetchall:
+            data = cursor.fetchall()
 
-        for i, el in enumerate(data):
-            data[i] = dict(el)
+            if data is None:
+                return []
 
-    if lastrowid:
-        data = cursor.lastrowid
+            if type(data) != list:
+                data = [data]
 
-    return data
+            for i, el in enumerate(data):
+                data[i] = dict(el)
+
+        if lastrowid:
+            data = cursor.lastrowid
+
+        return data
 
 
 def select_str(table_name: str, field_names: list = [], where: dict = {}):
