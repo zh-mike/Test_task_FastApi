@@ -10,6 +10,6 @@
 
 
 Установка:
-1. pip install fastapi uvicorn
+1. pip install fastapi uvicorn jwt
 2. python start.py
 3. uvicorn main:app --reload
